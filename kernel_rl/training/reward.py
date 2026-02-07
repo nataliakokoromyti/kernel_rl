@@ -1,12 +1,4 @@
-"""
-Reward shaping for KernelBench RL training.
-
-This module implements reward functions that combine:
-- Format correctness (valid code block extraction)
-- Compilation success
-- Correctness (passing all tests)
-- Speed (optional, for later stages of training)
-"""
+"""Reward computation for KernelBench RL training."""
 
 from __future__ import annotations
 
@@ -145,16 +137,8 @@ def speed_reward(
     """
     Compute reward for speedup over baseline.
 
-    Kevin-32B formula (arXiv:2507.11948):
-        speed_reward = T_baseline / T_kernel = speedup
-
-    Kevin uses LINEAR speedup directly, not log-scaled.
-    With speed_scale=1.0 (default), this returns the raw speedup value.
-
-    Only gives reward if:
-    - use_speed is True
-    - Kernel is fully correct
-    - Speedup data is available
+    Kevin-32B speed term (arXiv:2507.11948):
+        speed_reward = T_baseline / T_kernel = raw speedup
 
     Args:
         eval_result: Evaluation result
@@ -162,30 +146,20 @@ def speed_reward(
         use_speed: Whether to use speed rewards
 
     Returns:
-        Speed reward (0.0 if not applicable)
+        Raw speedup (0.0 if not applicable)
     """
     if not use_speed:
         return 0.0
 
-    # Only reward speed for fully correct kernels
-    if not eval_result["correctness"]:
+    if eval_result["cheated"] or not eval_result["correctness"]:
         return 0.0
 
     speedup = eval_result.get("speedup")
     if speedup is None or speedup <= 0:
         return 0.0
 
-    # Kevin uses linear speedup, not log-scaled
-    # If speedup <= baseline (1.0), no speed bonus
-    if speedup <= config.speed_baseline:
-        return 0.0
-
-    # Linear reward: speedup - 1.0 (so 2x speedup = 1.0 reward, 3x = 2.0, etc.)
-    # This matches Kevin's formula where reward = speedup for correct kernels
-    reward = config.speed_scale * (speedup - config.speed_baseline)
-
-    # Clamp to max to prevent outliers
-    return min(reward, config.speed_max_reward)
+    # Kevin uses raw speedup directly (no baseline subtraction).
+    return float(speedup)
 
 
 def length_reward(eval_result: "KernelEvalResult", config: RewardConfig) -> float:
@@ -275,16 +249,9 @@ def compute_reward(
     thought_length: int = 0,
 ) -> float:
     """
-    Compute the total reward for a kernel evaluation.
-
-    Kevin-32B formula (arXiv:2507.11948):
-        S = 0.3·𝟙{correct} + (T_baseline/T_kernel)·𝟙{correct}
-
-    Key behaviors:
-    - Zero reward for cheating (PyTorch wrapping, try-except, pass)
-    - Zero reward for incorrect kernels
-    - Binary correctness (no partial credit by default)
-    - Speedup added linearly (not log-scaled)
+    Compute reward using Kevin's formula exactly:
+        S = 0.3 + speedup, for correct non-cheating kernels
+        S = 0.0, otherwise
 
     Args:
         eval_result: Result from kernel evaluation
@@ -294,82 +261,21 @@ def compute_reward(
     Returns:
         Total reward (scalar)
     """
-    if config is None:
-        config = RewardConfig()
+    # Keep signature for compatibility with existing callsites/config wiring.
+    _ = config
+    _ = thought_length
 
-    # ==========================================================================
-    # Kevin Rule: Zero reward for cheating (early return)
-    # This is the critical fix - cheating gets 0, not a penalty
-    # ==========================================================================
+    # Kevin: zero reward for cheating.
     if eval_result["cheated"]:
         return 0.0
 
-    # ==========================================================================
-    # Kevin Rule: Zero reward for bad format
-    # ==========================================================================
-    if not eval_result["format_ok"]:
+    # Kevin: zero reward for incorrect kernels.
+    if not eval_result["correctness"]:
         return 0.0
 
-    # Sparse reward mode: only reward fully correct solutions
-    if config.sparse_rewards:
-        if eval_result["correctness"]:
-            base_reward = 1.0
-            # Add speed bonus if enabled
-            if config.speed_weight > 0:
-                s_reward = speed_reward(eval_result, config, use_speed=True)
-                base_reward += config.speed_weight * s_reward
-            # Add length bonus for tie-breaking (disabled by default in Kevin mode)
-            if config.length_weight > 0:
-                l_reward = length_reward(eval_result, config)
-                base_reward += config.length_weight * l_reward
-            # Add thinking bonus (disabled by default in Kevin mode)
-            if config.thinking_weight > 0:
-                t_reward = thinking_reward(thought_length, config)
-                base_reward += config.thinking_weight * t_reward
-            return base_reward
-        return 0.0
-
-    # ==========================================================================
-    # Kevin-style reward computation
-    # Formula: S = correctness_weight·correct + speed_weight·speedup
-    # With default Kevin weights: S = 0.3·correct + 1.0·speedup
-    # ==========================================================================
-
-    # Correctness reward (binary by default)
-    corr_reward = correctness_reward(eval_result, config)
-
-    # If not correct, zero reward (Kevin doesn't give partial credit)
-    if corr_reward == 0.0:
-        return 0.0
-
-    # Base reward for correctness
-    total = config.correctness_weight * corr_reward
-
-    # Add speedup reward (only for correct kernels)
-    if config.speed_weight > 0:
-        s_reward = speed_reward(eval_result, config, use_speed=True)
-        total += config.speed_weight * s_reward
-
-    # Optional: format/compile rewards (disabled by default in Kevin mode)
-    if config.format_weight > 0:
-        f_reward = format_reward(eval_result, config)
-        total += config.format_weight * f_reward
-
-    if config.compile_weight > 0:
-        c_reward = compile_reward(eval_result, config)
-        total += config.compile_weight * c_reward
-
-    # Optional: length reward (DISABLED by default - Kevin says it causes collapse)
-    if config.length_weight > 0:
-        l_reward = length_reward(eval_result, config)
-        total += config.length_weight * l_reward
-
-    # Optional: thinking reward (DISABLED by default - Kevin removes thinking)
-    if config.thinking_weight > 0:
-        t_reward = thinking_reward(thought_length, config)
-        total += config.thinking_weight * t_reward
-
-    return total
+    speedup = eval_result.get("speedup")
+    speed_term = float(speedup) if speedup is not None and speedup > 0 else 0.0
+    return 0.3 + speed_term
 
 
 def compute_reward_breakdown(
@@ -391,14 +297,19 @@ def compute_reward_breakdown(
     if config is None:
         config = RewardConfig()
 
+    speed = speed_reward(eval_result, config, use_speed=True)
+    is_valid = float((not eval_result["cheated"]) and bool(eval_result["correctness"]))
+    total = compute_reward(eval_result, config, thought_length)
+
     return {
+        # Logged for diagnostics, but not used by reward_total.
         "reward_format": format_reward(eval_result, config),
         "reward_compile": compile_reward(eval_result, config),
-        "reward_correctness": correctness_reward(eval_result, config),
-        "reward_speed": speed_reward(eval_result, config, use_speed=True),
-        "reward_length": length_reward(eval_result, config),
-        "reward_thinking": thinking_reward(thought_length, config),
-        "reward_total": compute_reward(eval_result, config, thought_length),
+        "reward_correctness": is_valid * 0.3,
+        "reward_speed": is_valid * speed,
+        "reward_length": 0.0,
+        "reward_thinking": 0.0,
+        "reward_total": total,
     }
 
 
