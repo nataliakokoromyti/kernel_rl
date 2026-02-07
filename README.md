@@ -205,7 +205,7 @@ The system parses both Qwen3 (`<think>`) and Kevin (`<THOUGHT>`) formats. If the
 ## Training
 
 The default configuration uses **Kevin mode (multi-turn) + RA-ICL**. This means:
-- Model gets 4 refinement attempts per problem
+- Model gets 8 refinement attempts per problem
 - Each attempt receives error feedback from the previous attempt
 - RA-ICL provides relevant kernel examples from a 34K+ corpus
 - Checkpoints saved after every batch for crash recovery
@@ -445,7 +445,7 @@ This implementation includes **Kevin-style multi-turn refinement training**, ins
 
 ### How It Works
 
-Instead of generating one kernel per problem, the model gets **T refinement turns** (default T=4):
+Instead of generating one kernel per problem, the model gets **T refinement turns** (default T=8):
 
 1. **Turn 0**: Model sees problem + RA-ICL examples → generates first kernel
 2. **Turn 1+**: Model sees problem + previous kernel + error feedback → refines

@@ -16,7 +16,7 @@ Built-in presets:
 | `max_tokens` | `4096` | Generation limit for each rollout. |
 | `temperature` | `1.0` | Sampling temperature for rollouts. |
 | `mode` | `"single_turn"` | `single_turn` or `multi_turn` (Kevin-style refinement). |
-| `max_turns` | `4` | Max refinement turns in `multi_turn` mode. |
+| `max_turns` | `8` | Max refinement turns in `multi_turn` mode. |
 | `gamma` | `0.4` | Discount for multi-turn returns. |
 | `num_substeps` | `1` | Optimizer steps per batch (gradient accumulation). |
 | `loss_fn` | `"importance_sampling"` | Loss sent to Tinker (`LossFnType`). |
@@ -81,7 +81,7 @@ Built-in presets:
 | `multiturn_dataset_builder.group_size` | `4` | Rollouts per problem. |
 | `multiturn_dataset_builder.num_epochs` | `1` | Dataset epochs. |
 | `multiturn_dataset_builder.shuffle` | `true` | Shuffle problems each epoch. |
-| `multiturn_dataset_builder.max_turns` | `4` | Max refinement turns. |
+| `multiturn_dataset_builder.max_turns` | `8` | Max refinement turns. |
 | `multiturn_dataset_builder.early_stop_on_correct` | `true` | Stop episode early once correctness (and optional speedup) is hit. |
 | `multiturn_dataset_builder.speedup_threshold` | `null` | Require this speedup for early stop (e.g., `1.0` to insist on >1x). |
 | `multiturn_dataset_builder.num_correct_trials` | `5` | Correctness trials per eval. |

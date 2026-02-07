@@ -5,7 +5,7 @@
 # as possible. Use this for reproducing Kevin results.
 #
 # Kevin-32B Key Innovations:
-#   - Multi-turn refinement (T=4 turns)
+#   - Multi-turn refinement (T=8 turns)
 #   - Discounted returns: R_t = s_t + 0.4*R_{t+1}
 #   - Simple reward: S = 0.3·correct + speedup
 #   - No length/thinking penalties (causes collapse)
@@ -44,7 +44,7 @@ mode: "multi_turn"  # Kevin-style multi-turn refinement
 # =============================================================================
 # Multi-Turn Configuration (Kevin Mode)
 # =============================================================================
-max_turns: 4        # Kevin: T=4 refinement attempts
+max_turns: 8        # Kevin: T=8 refinement attempts
 gamma: 0.4          # Kevin: gamma=0.4 (ablation showed this works best)
 
 # =============================================================================

@@ -3,7 +3,7 @@ Multi-Turn KernelBench Environment (Kevin Mode).
 
 This module implements a multi-turn RL environment for KernelBench,
 inspired by Cognition's Kevin-32B approach:
-  - Multiple refinement turns per problem (default T=4)
+  - Multiple refinement turns per problem (default T=8)
   - Each turn: model sees problem + RA-ICL + condensed history + feedback
   - Per-step scores combined with discounted returns for RL
 

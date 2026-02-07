@@ -42,7 +42,7 @@ mode: "multi_turn" # Kevin-style multi-turn refinement
 # =============================================================================
 # Multi-Turn Configuration (Kevin Mode)
 # =============================================================================
-max_turns: 4 # Kevin uses T=4 refinement attempts
+max_turns: 8 # Kevin uses T=8 refinement attempts
 gamma: 0.4 # Kevin paper: gamma=0.4 works best
 
 # =============================================================================
