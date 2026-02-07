@@ -8,7 +8,7 @@ KernelBench RL is a reinforcement learning training framework for GPU kernel opt
 
 Key approach:
 - Multi-turn RL with structured error feedback (Kevin-32B inspired)
-- Retrieval-augmented prompting (RA-ICL) from 48K+ kernel corpus
+- Optional retrieval-augmented prompting (RA-ICL) from 48K+ kernel corpus
 - Thinking tokens (`<think>` blocks) for reasoning before code generation
 - Progressive training stages (format → compile → correctness → speed)
 
@@ -27,7 +27,7 @@ Key approach:
 uv sync
 
 # Training (using justfile)
-just train <experiment_name>              # Default: Kevin + RA-ICL mode
+just train <experiment_name>              # Default: Kevin mode (RA-ICL optional)
 just train-kevin <experiment_name>        # Kevin mode explicitly
 just train-raicl <experiment_name>        # RA-ICL only (single-turn)
 just train-config <config.yaml> <name>    # Custom config
@@ -91,7 +91,7 @@ kernel_rl/
 │   └── build_rag_index.py      # RAG index builder
 │
 └── config/                  # YAML configurations
-    ├── rl_kernelbench.yaml         # Default (Kevin + RA-ICL)
+    ├── rl_kernelbench.yaml         # Default (Kevin; RA-ICL optional)
     ├── rl_kernelbench_kevin.yaml   # Kevin-mode specific
     └── rl_kernelbench_raicl.yaml   # RA-ICL only
 ```
@@ -115,7 +115,7 @@ Models produce outputs in this format:
 
 ### Multi-Turn Flow (Kevin Mode)
 Each problem allows multiple refinement turns with error feedback:
-1. Turn 1: Problem + RA-ICL examples → Kernel_1 → Evaluation
+1. Turn 1: Problem (optionally with RA-ICL examples) → Kernel_1 → Evaluation
 2. Turn 2: Problem + Previous thinking + Error feedback → Kernel_2 → ...
 3. Continue until success or max_turns reached
 4. Discounted returns: R_t = s_t + γ*s_{t+1} + γ²*s_{t+2} + ...
@@ -148,3 +148,5 @@ Training runs output to `./runs/<experiment_name>/`:
 - `metrics.jsonl`: Per-batch metrics (JSON lines)
 - `checkpoints.jsonl`: Checkpoint paths for resume
 - `tensorboard/`: TensorBoard event files
+
+

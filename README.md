@@ -8,24 +8,24 @@ This project uses **Reinforcement Learning with Verifiable Rewards (RLVR)** to f
 
 - Uses **KernelBench** as the environment and reward source
 - Uses **Tinker** for distributed LoRA fine-tuning with GRPO-style RL
-- **Default mode**: Kevin-style multi-turn refinement + RA-ICL retrieval
+- **Default mode**: Kevin-style multi-turn refinement (RA-ICL optional)
 - Supports **Qwen3 thinking tokens** (`<think>...</think>` blocks)
 - Supports progressive training stages: format → compile → correctness → speed
 
 ## Quick Start
 
 ```bash
-# 1. Build the RAG index (one-time, ~10 min)
-just build-rag-index
-
-# 2. Start training (Kevin mode + RA-ICL is default)
+# 1. Start training (Kevin mode is default; RA-ICL optional)
 just train my_experiment
 
-# 3. Monitor progress
+# 2. Monitor progress
 just watch-kevin my_experiment
 
-# 4. Resume if crashed
+# 3. Resume if crashed
 just resume my_experiment
+
+# Optional: Build the RAG index for RA-ICL (one-time, ~10 min)
+just build-rag-index
 ```
 
 ## Environment
@@ -204,16 +204,16 @@ The system parses both Qwen3 (`<think>`) and Kevin (`<THOUGHT>`) formats. If the
 
 ## Training
 
-The default configuration uses **Kevin mode (multi-turn) + RA-ICL**. This means:
+The default configuration uses **Kevin mode (multi-turn)**. RA-ICL is optional. This means:
 - Model gets 8 refinement attempts per problem
 - Each attempt receives error feedback from the previous attempt
-- RA-ICL provides relevant kernel examples from a 34K+ corpus
+- If enabled, RA-ICL provides relevant kernel examples from a 34K+ corpus
 - Checkpoints saved after every batch for crash recovery
 
 ### Using Justfile Commands
 
 ```bash
-# Start training (uses default config with Kevin + RA-ICL)
+# Start training (Kevin mode; RA-ICL optional)
 just train my_experiment
 
 # Monitor Kevin mode metrics
@@ -434,7 +434,7 @@ kernel_rl/
 │   ├── eval_kernel_rl.py           # Evaluation CLI
 │   └── build_rag_index.py          # RAG index builder
 └── config/
-    ├── rl_kernelbench.yaml         # Default config (Kevin + RA-ICL)
+    ├── rl_kernelbench.yaml         # Default config (Kevin; RA-ICL optional)
     ├── rl_kernelbench_raicl.yaml   # RA-ICL config (single-turn)
     └── rl_kernelbench_kevin.yaml   # Kevin mode config (multi-turn, legacy)
 ```
@@ -447,7 +447,7 @@ This implementation includes **Kevin-style multi-turn refinement training**, ins
 
 Instead of generating one kernel per problem, the model gets **T refinement turns** (default T=8):
 
-1. **Turn 0**: Model sees problem + RA-ICL examples → generates first kernel
+1. **Turn 0**: Model sees problem (optionally with RA-ICL examples) → generates first kernel
 2. **Turn 1+**: Model sees problem + previous kernel + error feedback → refines
 3. Continue until correct or max turns reached
 
@@ -461,14 +461,17 @@ This encourages the model to generate kernels that are easy to fix in subsequent
 ### Quick Start
 
 ```bash
-# Kevin mode is now the default - just run:
+# 1. Start training (Kevin mode is default; RA-ICL optional)
 just train my_experiment
 
-# To use single-turn mode instead:
-uv run python -m kernel_rl.scripts.train_kernel_rl \
-    --config kernel_rl/config/rl_kernelbench.yaml \
-    mode=single_turn \
-    log_path=./runs/single_turn_experiment
+# 2. Monitor progress
+just watch-kevin my_experiment
+
+# 3. Resume if crashed
+just resume my_experiment
+
+# Optional: Build the RAG index for RA-ICL (one-time, ~10 min)
+just build-rag-index
 ```
 
 ### Kevin Mode Parameters
@@ -582,3 +585,10 @@ If empty or missing, training crashed before the first checkpoint was saved.
 - [Kevin-32B](https://cognition.ai/blog/kevin-32b) - Multi-turn kernel RL (Cognition)
 - [Kevin-32B Paper](https://arxiv.org/abs/2507.11948) - Details on thinking rewards and length penalties
 - [Demystifying Long CoT](https://arxiv.org/abs/2502.03373) - Length-scaling reward research
+
+
+
+
+
+
+

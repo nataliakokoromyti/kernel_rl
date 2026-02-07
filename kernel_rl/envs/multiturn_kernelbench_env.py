@@ -4,7 +4,7 @@ Multi-Turn KernelBench Environment (Kevin Mode).
 This module implements a multi-turn RL environment for KernelBench,
 inspired by Cognition's Kevin-32B approach:
   - Multiple refinement turns per problem (default T=8)
-  - Each turn: model sees problem + RA-ICL + condensed history + feedback
+  - Each turn: model sees problem (+ RA-ICL if enabled) + condensed history + feedback
   - Per-step scores combined with discounted returns for RL
 
 The environment tracks:
@@ -379,8 +379,8 @@ class MultiTurnKernelBenchEnv(Env):
     Multi-turn RL environment for KernelBench (Kevin mode).
 
     Each episode consists of T refinement steps:
-    1. Turn 0: Problem + RA-ICL examples → model generates first kernel
-    2. Turn 1+: Problem + RA-ICL + previous attempts + feedback → model refines
+    1. Turn 0: Problem (optionally with RA-ICL examples) → model generates first kernel
+    2. Turn 1+: Problem (+ RA-ICL if enabled) + previous attempts + feedback → model refines
 
     Episode ends when:
     - max_turns reached
@@ -990,7 +990,7 @@ class MultiTurnKernelBenchDatasetBuilder(RLDatasetBuilder):
     test_fraction: float = 0.1
 
     # Prompt configuration
-    prompt_option: str = "raicl"  # RA-ICL recommended for multi-turn
+    prompt_option: str = "one_shot"  # Set to "raicl" to enable retrieval-augmented prompts
     rag_index_path: str | None = None
     raicl_k: int = 3
 
@@ -1104,3 +1104,4 @@ class MultiTurnKernelBenchDatasetBuilder(RLDatasetBuilder):
             )
 
         return train_dataset, test_dataset
+

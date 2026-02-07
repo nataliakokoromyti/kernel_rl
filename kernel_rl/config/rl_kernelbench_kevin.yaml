@@ -116,7 +116,7 @@ dataset_builder:
   renderer_name: "qwen3"
 
   # RA-ICL Configuration
-  prompt_option: "raicl"
+  prompt_option: "one_shot"
   rag_index_path: "./kernel_rag_index"
   raicl_k: 3
 
@@ -127,3 +127,4 @@ dataset_builder:
   use_modal: true # Enable Modal for isolated kernel evaluation
   modal_gpu_type: "A100" # GPU type: A100, H100, L40S, T4
   modal_timeout: 60.0 # Hard timeout per kernel (seconds)
+
