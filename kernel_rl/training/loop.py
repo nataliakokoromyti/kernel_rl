@@ -187,7 +187,13 @@ class TrainingConfig:
 
     # Training configuration
     num_substeps: int = 1  # Optimizer steps per batch
-    loss_fn: LossFnType = "importance_sampling"
+    loss_fn: LossFnType = "ppo"
+    loss_fn_config: dict[str, float] | None = chz.field(
+        default_factory=lambda: {
+            "clip_low_threshold": 0.2,
+            "clip_high_threshold": 0.28,
+        }
+    )
 
     # KL regularization
     kl_penalty_coef: float = 0.0
@@ -599,6 +605,7 @@ async def train_step(
     learning_rate: float,
     num_substeps: int,
     loss_fn: LossFnType,
+    loss_fn_config: dict[str, float] | None,
 ) -> list[torch.Tensor]:
     """
     Perform a training step with gradient accumulation.
@@ -609,6 +616,7 @@ async def train_step(
         learning_rate: Learning rate
         num_substeps: Number of optimizer steps
         loss_fn: Loss function type
+        loss_fn_config: Optional loss-function configuration
 
     Returns:
         List of training logprobs tensors
@@ -621,8 +629,12 @@ async def train_step(
         batch = data[i : i + substep_size]
 
         # Forward-backward pass (remove mask key from datums)
+        fwd_bwd_kwargs: dict[str, Any] = {"loss_fn": loss_fn}
+        if loss_fn_config:
+            fwd_bwd_kwargs["loss_fn_config"] = loss_fn_config
         fwd_bwd_future = await training_client.forward_backward_async(
-            [remove_mask(d) for d in batch], loss_fn=loss_fn
+            [remove_mask(d) for d in batch],
+            **fwd_bwd_kwargs,
         )
         fwd_bwd_result = await fwd_bwd_future.result_async()
 
@@ -930,6 +942,7 @@ async def run_training_loop(
                 cfg.learning_rate,
                 cfg.num_substeps,
                 cfg.loss_fn,
+                cfg.loss_fn_config,
             )
 
         # Save checkpoint and get new sampling client

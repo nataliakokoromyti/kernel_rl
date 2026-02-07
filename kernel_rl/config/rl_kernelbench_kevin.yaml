@@ -52,7 +52,10 @@ gamma: 0.4          # Kevin: gamma=0.4 (ablation showed this works best)
 # Kevin: 2 gradient steps per batch, 0.05 gradient clipping
 # =============================================================================
 num_substeps: 2     # Kevin uses 2 gradient steps per batch
-loss_fn: "importance_sampling"
+loss_fn: "ppo"
+loss_fn_config:
+  clip_low_threshold: 0.2
+  clip_high_threshold: 0.28
 
 # KL Regularization (optional)
 kl_penalty_coef: 0.0

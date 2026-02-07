@@ -27,7 +27,10 @@ temperature: 1.0
 # Training Configuration
 # ----------------------
 num_substeps: 1
-loss_fn: "importance_sampling"
+loss_fn: "ppo"
+loss_fn_config:
+  clip_low_threshold: 0.2
+  clip_high_threshold: 0.28
 
 # KL Regularization (optional)
 kl_penalty_coef: 0.0

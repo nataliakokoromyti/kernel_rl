@@ -19,7 +19,9 @@ Built-in presets:
 | `max_turns` | `8` | Max refinement turns in `multi_turn` mode. |
 | `gamma` | `0.4` | Discount for multi-turn returns. |
 | `num_substeps` | `1` | Optimizer steps per batch (gradient accumulation). |
-| `loss_fn` | `"importance_sampling"` | Loss sent to Tinker (`LossFnType`). |
+| `loss_fn` | `"ppo"` | Loss sent to Tinker (`LossFnType`). |
+| `loss_fn_config.clip_low_threshold` | `0.2` | PPO lower clipping threshold (`1-ε_low`). |
+| `loss_fn_config.clip_high_threshold` | `0.28` | PPO upper clipping threshold (`1+ε_high`, DAPO Clip-Higher). |
 | `kl_penalty_coef` | `0.0` | Optional KL regularization coefficient. |
 | `kl_discount_factor` | `0.0` | Discount for KL term. |
 | `remove_constant_reward_groups` | `true` | Drop groups where all rewards are equal. |
