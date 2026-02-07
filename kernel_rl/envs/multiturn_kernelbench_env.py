@@ -69,6 +69,9 @@ MAX_ERROR_LEN = 800
 # Maximum lines of error context to include
 MAX_ERROR_LINES = 10
 
+# Maximum summary length carried across turns (context control)
+MAX_SUMMARY_CHARS = 800
+
 
 def _extract_key_error(error_message: str | None, include_context: bool = True) -> str:
     """
@@ -239,6 +242,7 @@ class MultiTurnState:
     history: list[dict]        # list of {kernel, thought, eval_result, score} dicts
     last_kernel: str | None
     last_thought: str | None   # Last thinking content (for logging, not fed to next turn)
+    last_summary: str | None   # Last summary content (fed to next turn)
     last_eval: KernelEvalResult | None
     step_scores: list[float]   # scores for each completed step
     done: bool
@@ -272,7 +276,16 @@ Keep this section under 150 tokens.
 class ModelNew(nn.Module):
     ...
 ```
-</KERNEL>"""
+</KERNEL>
+
+<SUMMARY>
+2-4 sentences describing:
+- What optimization strategy you used this turn
+- Key implementation decisions and tradeoffs
+- What you would improve next if needed
+
+Keep this section concise (<= 120 tokens). It will be provided in the next refinement turn.
+</SUMMARY>"""
 
 # Kevin-style prompt without thinking tokens (saves context, matches paper)
 MULTITURN_SYSTEM_PROMPT_NO_THINK = """You are an expert GPU kernel developer. Your task is to optimize PyTorch operations by writing efficient custom {backend} kernels.
@@ -292,11 +305,23 @@ You MUST respond in exactly this format:
 class ModelNew(nn.Module):
     ...
 ```
-</KERNEL>"""
+</KERNEL>
+
+<SUMMARY>
+2-4 sentences describing:
+- What optimization strategy you used this turn
+- Key implementation decisions and tradeoffs
+- What you would improve next if needed
+
+Keep this section concise (<= 120 tokens). It will be provided in the next refinement turn.
+</SUMMARY>"""
 
 
 REFINEMENT_TEMPLATE = """
 ## Previous Attempt (Turn {turn})
+
+## Your Previous Reasoning Summary
+{previous_summary}
 
 ```python
 {previous_kernel}
@@ -316,9 +341,31 @@ REFINEMENT_TEMPLATE = """
 
 Keep what works. Do not change the function signature unless necessary. Do not use PyTorch APIs for the core computation.
 """
-# NOTE: Kevin-32B removes thinking/CoT from multi-turn prompts for context management.
-# "each prompt will now only include the previously generated kernels and evaluation results"
-# The thinking_section was removed from this template per Kevin paper (arXiv:2507.11948).
+# Kevin-style context compression: drop raw chain-of-thought but pass a concise summary.
+
+
+def _truncate_summary(summary: str, max_chars: int = MAX_SUMMARY_CHARS) -> str:
+    """Cap summary length to keep refinement context compact."""
+    if len(summary) <= max_chars:
+        return summary
+    return summary[:max_chars].rstrip() + "..."
+
+
+def _fallback_summary(eval_result: "KernelEvalResult", error_category: str) -> str:
+    """Build a minimal summary when model did not emit <SUMMARY>."""
+    if error_category == "success":
+        speedup = eval_result.get("speedup")
+        if speedup is not None:
+            return f"Previous attempt compiled and passed all tests with speedup {speedup:.2f}x."
+        return "Previous attempt compiled and passed all tests."
+    if not eval_result["compiled"]:
+        return "Previous attempt failed to compile; next turn should focus on fixing syntax/API issues."
+    if not eval_result["correctness"]:
+        return (
+            f"Previous attempt compiled but only passed {eval_result['tests_passed']}/"
+            f"{eval_result['tests_total']} correctness tests; next turn should fix output correctness."
+        )
+    return "Previous attempt needs refinement based on the reported evaluation feedback."
 
 ERROR_SECTION_TEMPLATE = """### Error Details
 ```
@@ -476,13 +523,13 @@ class MultiTurnKernelBenchEnv(Env):
             if not guidance:
                 guidance = "Fix the issues in the previous attempt and try again."
 
-            # NOTE: Kevin-32B removes thinking/CoT from multi-turn prompts
-            # "each prompt will now only include the previously generated kernels
-            # and evaluation results" - arXiv:2507.11948
-            # We still track last_thought for logging/analysis, but don't include in prompt
+            # Kevin-style: pass compressed reasoning summary, not raw thought/CoT.
+            previous_summary = self.state.last_summary or _fallback_summary(eval_result, error_category)
+            previous_summary = _truncate_summary(previous_summary)
 
             refinement_text = REFINEMENT_TEMPLATE.format(
                 turn=self.state.turn_idx,
+                previous_summary=previous_summary,
                 previous_kernel=_truncate_kernel(self.state.last_kernel),
                 error_category=error_category_display,
                 compiled="Yes" if eval_result["compiled"] else "No",
@@ -494,10 +541,10 @@ class MultiTurnKernelBenchEnv(Env):
             )
             if self._include_think:
                 refinement_text += (
-                    "\nRemember: respond using <think>...</think> followed by <KERNEL>...</KERNEL>."
+                    "\nRemember: respond using <think>...</think>, then <KERNEL>...</KERNEL>, then <SUMMARY>...</SUMMARY>."
                 )
             else:
-                refinement_text += "\nRemember: respond using <KERNEL>...</KERNEL>."
+                refinement_text += "\nRemember: respond using <KERNEL>...</KERNEL> followed by <SUMMARY>...</SUMMARY>."
 
             user_content_parts.append(refinement_text)
 
@@ -521,6 +568,7 @@ class MultiTurnKernelBenchEnv(Env):
             history=[],
             last_kernel=None,
             last_thought=None,
+            last_summary=None,
             last_eval=None,
             step_scores=[],
             done=False,
@@ -551,10 +599,13 @@ class MultiTurnKernelBenchEnv(Env):
         kernel_code = parsed.kernel
         state.last_kernel = kernel_code
         state.last_thought = parsed.thought
+        state.last_summary = _truncate_summary(parsed.thought_summary) if parsed.thought_summary else None
 
         # Log thinking content if present (for debugging/analysis)
         if parsed.thought:
             logtree.log_text(f"Thought (Turn {state.turn_idx}): {parsed.thought[:200]}...")
+        if parsed.thought_summary:
+            logtree.log_text(f"Summary (Turn {state.turn_idx}): {state.last_summary}")
 
         # Check format validity
         format_ok = parsed.format_ok
@@ -595,6 +646,7 @@ class MultiTurnKernelBenchEnv(Env):
             "turn": state.turn_idx,
             "kernel": kernel_code,
             "thought": parsed.thought,  # For logging/analysis only
+            "summary": state.last_summary,
             "eval_result": eval_result,
             "score": step_score,
         })
@@ -642,6 +694,8 @@ class MultiTurnKernelBenchEnv(Env):
             "episode_success": float(state.success),
             "thought_length": len(parsed.thought),  # Track thinking token usage
             "has_thought": float(bool(parsed.thought)),
+            "summary_length": len(parsed.thought_summary),
+            "has_summary": float(bool(parsed.thought_summary)),
         }
         if eval_result.get("speedup"):
             metrics["speedup"] = eval_result["speedup"]
@@ -710,6 +764,7 @@ class MultiTurnKernelBenchEnv(Env):
             "response": {
                 "raw": parsed.raw,
                 "thought": parsed.thought,
+                "summary": parsed.thought_summary,
                 "kernel": parsed.kernel,
                 "format_ok": format_ok,
             },

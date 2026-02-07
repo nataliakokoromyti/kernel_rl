@@ -45,11 +45,18 @@ KERNEL_BLOCK_SIMPLE_PATTERN = re.compile(
     re.DOTALL | re.IGNORECASE
 )
 
+# Summary block pattern - concise reasoning carried across refinement turns
+SUMMARY_BLOCK_PATTERN = re.compile(
+    r"<SUMMARY>(.*?)</SUMMARY>",
+    re.DOTALL | re.IGNORECASE
+)
+
 
 @dataclass
 class ParsedResponse:
     """Parsed model response with thinking and kernel blocks."""
     thought: str  # Content from <think>/<THOUGHT> block (may be empty)
+    thought_summary: str  # Content from <SUMMARY> block (may be empty)
     kernel: str   # Kernel code (from <KERNEL> block or extracted code block)
     raw: str      # Original raw response
     format_ok: bool  # Whether we successfully extracted kernel code
@@ -70,6 +77,10 @@ def parse_structured_response(text: str) -> ParsedResponse:
         ```
         </KERNEL>
 
+        <SUMMARY>
+        Brief summary for next refinement turn...
+        </SUMMARY>
+
     Also handles:
     - <thinking>...</thinking> and <THOUGHT>...</THOUGHT> variants
     - Missing thinking block (thought will be empty string)
@@ -84,6 +95,7 @@ def parse_structured_response(text: str) -> ParsedResponse:
     """
     raw = text
     thought = ""
+    thought_summary = ""
     kernel = ""
 
     # Extract thinking block (optional)
@@ -92,6 +104,13 @@ def parse_structured_response(text: str) -> ParsedResponse:
         thought = think_match.group(1).strip()
         # Remove thinking block from text for kernel extraction
         text = THINKING_PATTERN.sub("", text).strip()
+
+    # Extract summary block (optional)
+    summary_match = SUMMARY_BLOCK_PATTERN.search(text)
+    if summary_match:
+        thought_summary = summary_match.group(1).strip()
+        # Remove summary block from text for kernel extraction
+        text = SUMMARY_BLOCK_PATTERN.sub("", text).strip()
 
     # Try to extract kernel from <KERNEL> block
     kernel_match = KERNEL_BLOCK_PATTERN.search(text)
@@ -119,6 +138,7 @@ def parse_structured_response(text: str) -> ParsedResponse:
 
     return ParsedResponse(
         thought=thought,
+        thought_summary=thought_summary,
         kernel=kernel,
         raw=raw,
         format_ok=format_ok,
