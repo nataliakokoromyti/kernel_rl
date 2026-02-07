@@ -15,7 +15,7 @@
 
 # Model Configuration
 # -------------------
-model_name: "Qwen/Qwen3-30B-A3B"
+model_name: "Qwen/QwQ-32B"
 lora_rank: 256
 learning_rate: 0.0001
 

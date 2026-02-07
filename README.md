@@ -241,7 +241,7 @@ uv run python -m kernel_rl.scripts.train_kernel_rl \
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `model_name` | HuggingFace model ID | `Qwen/Qwen3-30B-A3B` |
+| `model_name` | HuggingFace model ID | `Qwen/QwQ-32B` |
 | `mode` | `"single_turn"` or `"multi_turn"` | `"multi_turn"` |
 | `max_turns` | Refinement attempts (Kevin mode) | `4` |
 | `gamma` | Discount factor for future rewards | `0.4` |

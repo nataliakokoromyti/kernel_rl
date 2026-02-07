@@ -21,10 +21,10 @@
 
 # =============================================================================
 # Model Configuration
-# Kevin uses QwQ-32B, we use Qwen3-30B-A3B (similar architecture)
+# Kevin uses QwQ-32B
 # =============================================================================
-model_name: "Qwen/Qwen3-30B-A3B"
-lora_rank: 64  # Tinker max for Qwen3-30B-A3B
+model_name: "Qwen/QwQ-32B"
+lora_rank: 64  # Tinker max for 32B-class models
 learning_rate: 0.000002 # Kevin uses 2e-6 (very conservative)
 
 # =============================================================================

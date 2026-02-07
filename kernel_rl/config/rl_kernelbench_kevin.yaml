@@ -23,9 +23,9 @@
 
 # =============================================================================
 # Model Configuration
-# Kevin uses QwQ-32B, we use Qwen3-30B-A3B
+# Kevin uses QwQ-32B
 # =============================================================================
-model_name: "Qwen/Qwen3-30B-A3B"
+model_name: "Qwen/QwQ-32B"
 lora_rank: 256
 learning_rate: 0.000002  # Kevin: 2e-6 constant with 0.03 warmup ratio
 
