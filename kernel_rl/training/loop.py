@@ -55,6 +55,87 @@ from kernel_rl.training.reward import compute_discounted_returns
 from kernel_rl.training.trace_logger import TraceLogger, set_trace_logger
 
 
+ADVANTAGE_KEYS = ("advantages", "advantage")
+MASK_KEYS = ("mask", "response_mask", "completion_mask")
+
+
+def _count_masked_tokens(mask: Any) -> int:
+    """Count active tokens from a response mask."""
+    if isinstance(mask, torch.Tensor):
+        return int(mask.to(torch.float32).sum().item())
+    if isinstance(mask, np.ndarray):
+        return int(np.asarray(mask, dtype=np.float32).sum())
+    if isinstance(mask, (list, tuple)):
+        return int(np.asarray(mask, dtype=np.float32).sum())
+    return int(mask) if isinstance(mask, (int, float, np.number)) else 0
+
+
+def _scale_value(value: Any, scale: float) -> Any:
+    """Scale numeric/tensor-like values by a float factor."""
+    if isinstance(value, torch.Tensor):
+        return value / scale
+    if isinstance(value, np.ndarray):
+        return value / scale
+    if isinstance(value, (int, float, np.number)):
+        return value / scale
+    if isinstance(value, list):
+        return [v / scale if isinstance(v, (int, float, np.number)) else v for v in value]
+    if isinstance(value, tuple):
+        return tuple(v / scale if isinstance(v, (int, float, np.number)) else v for v in value)
+    return value
+
+
+def length_normalize_advantages(data: list[tinker.Datum]) -> tuple[list[tinker.Datum], dict[str, float]]:
+    """
+    Approximate Dr. GRPO by dividing per-datum advantage weights by response length.
+
+    Uses response masks produced by assemble_training_data to count generated tokens.
+    """
+    normalized_data: list[tinker.Datum] = []
+    normalized = 0
+    missing_mask = 0
+    missing_advantage = 0
+    zero_length = 0
+
+    for datum in data:
+        inputs = dict(datum.loss_fn_inputs)
+
+        advantage_key = next((k for k in ADVANTAGE_KEYS if k in inputs), None)
+        if advantage_key is None:
+            missing_advantage += 1
+            normalized_data.append(datum)
+            continue
+
+        mask = next((inputs[k] for k in MASK_KEYS if k in inputs), None)
+        if mask is None:
+            missing_mask += 1
+            normalized_data.append(datum)
+            continue
+
+        response_length = _count_masked_tokens(mask)
+        if response_length <= 0:
+            zero_length += 1
+            normalized_data.append(datum)
+            continue
+
+        inputs[advantage_key] = _scale_value(inputs[advantage_key], float(response_length))
+        normalized += 1
+        normalized_data.append(
+            tinker.Datum(
+                model_input=datum.model_input,
+                loss_fn_inputs=inputs,
+            )
+        )
+
+    stats = {
+        "dr_grpo/normalized_datums": float(normalized),
+        "dr_grpo/missing_mask_datums": float(missing_mask),
+        "dr_grpo/missing_advantage_datums": float(missing_advantage),
+        "dr_grpo/zero_length_datums": float(zero_length),
+    }
+    return normalized_data, stats
+
+
 def remove_mask(datum: tinker.Datum) -> tinker.Datum:
     """Remove mask from datum loss_fn_inputs before sending to forward_backward.
 
@@ -838,6 +919,8 @@ async def run_training_loop(
         with timed("assemble_data", metrics):
             advantages = compute_advantages(trajectory_groups)
             data, _metadata = assemble_training_data(trajectory_groups, advantages)
+            data, length_norm_metrics = length_normalize_advantages(data)
+            metrics.update(length_norm_metrics)
 
         # Training step
         with timed("train", metrics):

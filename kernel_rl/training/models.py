@@ -215,4 +215,5 @@ def get_adam_params(learning_rate: float) -> tinker.AdamParams:
         beta1=0.9,
         beta2=0.95,
         eps=1e-8,
+        grad_clip_norm=0.05,
     )
