@@ -581,6 +581,49 @@ class MultiTurnKernelBenchEnv(Env):
         self._current_observation = observation
         return observation, self.stop_condition
 
+    async def initial_observation_from_history(
+        self,
+        history: list[dict],
+    ) -> tuple[Observation, StopCondition]:
+        """
+        Initialize the environment from an existing history and continue refinement.
+
+        The history entries should contain at least:
+        - kernel: str
+        - summary: str | None
+        - eval_result: KernelEvalResult
+        - score: float (optional)
+        """
+        if not history:
+            return await self.initial_observation()
+
+        last_entry = history[-1]
+        last_eval = last_entry.get("eval_result")
+
+        self._state = MultiTurnState(
+            level=self.problem.level,
+            problem_id=self.problem.problem_id,
+            backend=self.problem.backend,
+            turn_idx=len(history),
+            max_turns=self.max_turns,
+            prompt_base=self.problem.ref_code,
+            ra_icl_snippet=self._build_ra_icl_snippet(),
+            history=list(history),
+            last_kernel=last_entry.get("kernel"),
+            last_thought=None,
+            last_summary=last_entry.get("summary"),
+            last_eval=last_eval,
+            step_scores=[float(h.get("score", 0.0)) for h in history],
+            done=False,
+            success=False,
+        )
+
+        messages = self._build_refinement_messages()
+        observation = self.renderer.build_generation_prompt(messages)
+        self._current_prompt_messages = messages
+        self._current_observation = observation
+        return observation, self.stop_condition
+
     async def step(self, action: Action) -> StepResult:
         """
         Process the model's action (generated kernel code).
