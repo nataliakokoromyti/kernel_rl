@@ -35,6 +35,7 @@ dependencies = [
     "tqdm",
     "chz",
     "python-dotenv",
+    "huggingface_hub>=0.25.0",
     # KernelBench dependencies
     "pydra-config",
     "tomli",

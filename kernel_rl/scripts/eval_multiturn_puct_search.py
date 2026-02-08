@@ -39,6 +39,11 @@ from kernel_rl.envs.kernelbench_client import (
 from kernel_rl.envs.multiturn_kernelbench_env import MultiTurnKernelBenchEnv
 from kernel_rl.training.models import get_renderer_name_for_model
 from kernel_rl.training.reward import RewardConfig
+from kernel_rl.inference.hf_endpoint import HFEndpointClient
+from kernel_rl.inference.multiturn_runner import (
+    MultiTurnHistoryEntry,
+    run_multiturn_steps,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -55,6 +60,11 @@ class PUCTSearchConfig:
     # Model/checkpoint configuration
     checkpoint_path: str = ""  # Path to checkpoint or "tinker://..." path
     model_name: str = "Qwen/QwQ-32B"  # For tokenizer/renderer
+
+    # Sampling backend
+    sampling_backend: str = "tinker"  # "tinker" or "hf_endpoint"
+    hf_endpoint_url: str | None = None
+    hf_api_key: str | None = None
 
     # Evaluation configuration
     level: int = 1
@@ -250,38 +260,92 @@ async def _run_env_steps(
 
 async def run_puct_search_for_problem(
     problem: KernelBenchProblem,
-    sampling_client: tinker.SamplingClient,
+    sampling_client: tinker.SamplingClient | None,
+    hf_client: HFEndpointClient | None,
     renderer: renderers.Renderer,
     cfg: PUCTSearchConfig,
 ) -> ProblemPUCTResult:
     if cfg.init_rollouts > cfg.total_rollouts:
         raise ValueError("init_rollouts must be <= total_rollouts")
 
-    policy = TinkerTokenCompleter(
-        sampling_client,
-        max_tokens=cfg.max_tokens,
-        temperature=cfg.temperature,
-    )
+    policy = None
+    if cfg.sampling_backend == "tinker":
+        if sampling_client is None:
+            raise RuntimeError("Tinker sampling client is not initialized")
+        policy = TinkerTokenCompleter(
+            sampling_client,
+            max_tokens=cfg.max_tokens,
+            temperature=cfg.temperature,
+        )
 
     buffer = PUCTBuffer(exploration_coeff=cfg.exploration_coeff)
     reward_config = RewardConfig(thinking_weight=cfg.thinking_weight)
 
     async def run_one(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        total_turns = len(history) + cfg.steps_per_rollout
-        env = MultiTurnKernelBenchEnv(
-            problem=problem,
-            renderer=renderer,
-            max_turns=total_turns,
+        if cfg.sampling_backend == "tinker":
+            total_turns = len(history) + cfg.steps_per_rollout
+            env = MultiTurnKernelBenchEnv(
+                problem=problem,
+                renderer=renderer,
+                max_turns=total_turns,
+                reward_config=reward_config,
+                num_correct_trials=cfg.num_correct_trials,
+                measure_performance=cfg.measure_performance,
+                early_stop_on_correct=cfg.early_stop_on_correct,
+                speedup_threshold=cfg.speedup_threshold,
+                use_modal=cfg.use_modal,
+                modal_timeout=cfg.modal_timeout,
+            )
+            env = await _run_env_steps(env, history, policy)
+            return _strip_history(env.state.history)
+
+        if hf_client is None:
+            raise RuntimeError("HF endpoint client is not initialized")
+        stop = renderer.get_stop_sequences()
+        history_entries = [
+            MultiTurnHistoryEntry(
+                turn=h.get("turn", 0),
+                kernel=h.get("kernel"),
+                summary=h.get("summary"),
+                eval_result=h.get("eval_result") or {},
+                score=float(h.get("score", 0.0)),
+            )
+            for h in history
+        ]
+
+        async def generate_fn(messages):
+            return await hf_client.chat_completion(
+                messages=messages,
+                max_tokens=cfg.max_tokens,
+                temperature=cfg.temperature,
+                stop=stop,
+            )
+
+        updated = await run_multiturn_steps(
+            problem,
+            history_entries,
+            cfg.steps_per_rollout,
+            generate_fn=generate_fn,
+            include_think=cfg.thinking_weight > 0,
             reward_config=reward_config,
             num_correct_trials=cfg.num_correct_trials,
             measure_performance=cfg.measure_performance,
-            early_stop_on_correct=cfg.early_stop_on_correct,
-            speedup_threshold=cfg.speedup_threshold,
             use_modal=cfg.use_modal,
             modal_timeout=cfg.modal_timeout,
+            early_stop_on_correct=cfg.early_stop_on_correct,
+            speedup_threshold=cfg.speedup_threshold,
         )
-        env = await _run_env_steps(env, history, policy)
-        return _strip_history(env.state.history)
+
+        return [
+            {
+                "turn": h.turn,
+                "kernel": h.kernel,
+                "summary": h.summary,
+                "eval_result": h.eval_result,
+                "score": h.score,
+            }
+            for h in updated
+        ]
 
     # Seed buffer with initial exploration
     seed_results = await asyncio.gather(*[
@@ -342,14 +406,21 @@ async def run_puct_search_for_problem(
 
 
 async def run_inference(cfg: PUCTSearchConfig) -> dict[str, Any]:
-    service_client = tinker.ServiceClient(base_url=cfg.base_url)
+    sampling_client: tinker.SamplingClient | None = None
+    hf_client: HFEndpointClient | None = None
 
-    if cfg.checkpoint_path:
-        logger.info("Loading checkpoint: %s", cfg.checkpoint_path)
-        sampling_client = service_client.create_sampling_client(cfg.checkpoint_path)
+    if cfg.sampling_backend == "tinker":
+        service_client = tinker.ServiceClient(base_url=cfg.base_url)
+        if cfg.checkpoint_path:
+            logger.info("Loading checkpoint: %s", cfg.checkpoint_path)
+            sampling_client = service_client.create_sampling_client(cfg.checkpoint_path)
+        else:
+            logger.info("Using base model: %s", cfg.model_name)
+            sampling_client = service_client.create_sampling_client(base_model=cfg.model_name)
     else:
-        logger.info("Using base model: %s", cfg.model_name)
-        sampling_client = service_client.create_sampling_client(base_model=cfg.model_name)
+        if not cfg.hf_endpoint_url:
+            raise ValueError("hf_endpoint_url is required when sampling_backend=hf_endpoint")
+        hf_client = HFEndpointClient(cfg.hf_endpoint_url, api_key=cfg.hf_api_key)
 
     renderer_name = get_renderer_name_for_model(cfg.model_name)
     renderer = renderers.get_renderer(renderer_name)
@@ -386,7 +457,7 @@ async def run_inference(cfg: PUCTSearchConfig) -> dict[str, Any]:
     for problem in tqdm(problems, desc="PUCT search"):
         try:
             res = await run_puct_search_for_problem(
-                problem, sampling_client, renderer, cfg
+                problem, sampling_client, hf_client, renderer, cfg
             )
             results.append(res)
         except Exception as exc:
